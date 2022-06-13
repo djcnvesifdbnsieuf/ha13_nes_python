@@ -54,7 +54,8 @@ st.write('Теперь давайте узнаем, среднее число п
 st.write('К сожалению, часть данных отсутствует, поэтому на карте видны белые пятна')
 
 pop = load_data('result.csv')
-russia_map = gpd.read_file("admin_level_4.geojson", encoding='CP1251') #геоданные, и дальше ихи еще больше
+url = 'https://www.dropbox.com/s/6rv1rk1t749b28e/admin_level_4.geojson?dl=1'
+russia_map = request.get(url)
 #russia_map_v2 = russia_map.to_crs("ESRI:102012")
 russia_map_good = (russia_map.sort_values(by=['name']))
 russia_map_good['name'] = pop['regions']
@@ -162,7 +163,8 @@ with st.echo(code_location ='below'):
     st.write('К сожалению, часть данных отсутствует, поэтому на карте видны белые пятна')
 
     pop = load_data('result.csv')
-    russia_map = gpd.read_file("admin_level_4.geojson", encoding='CP1251') #геоданные, и дальше ихи еще больше
+    url = 'https://www.dropbox.com/s/6rv1rk1t749b28e/admin_level_4.geojson?dl=1'
+    russia_map = request.get(url)
     russia_map_good = (russia_map.sort_values(by=['name']))
     russia_map_good['name'] = pop['regions']
     russia_map_good['population'] = pop['population'] #на данном этапе произошел ***** с индексами, я не знаю почему, НО чекнул руками, все верно в плане регион-население, а вот с сортировкой проблемы
