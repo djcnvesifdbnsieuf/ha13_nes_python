@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from shapely.geometry import Point
 from sklearn.linear_model import LinearRegression
 import rtree
+import requests
 
 
 def load_data(a):
