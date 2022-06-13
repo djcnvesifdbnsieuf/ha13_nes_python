@@ -56,7 +56,7 @@ st.write('К сожалению, часть данных отсутствует,
 
 pop = load_data('result.csv')
 url = 'https://www.dropbox.com/s/6rv1rk1t749b28e/admin_level_4.geojson?dl=1'
-russia_map = request.get(url)
+russia_map = requests.get(url)
 #russia_map_v2 = russia_map.to_crs("ESRI:102012")
 russia_map_good = (russia_map.sort_values(by=['name']))
 russia_map_good['name'] = pop['regions']
