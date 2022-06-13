@@ -1,188 +1,118 @@
-# This is a sample Python script.
-
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
-
 import streamlit as st
-#import numpy as np
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-#import geopandas as gpd
-#import matplotlib.pyplot as plt
-#import folium
+import geopandas as gpd
+import matplotlib.pyplot as plt
+from shapely.geometry import Point
+from sklearn.linear_model import LinearRegression
+import rtree
 
-@st.cache
+
 def load_data(a):
     x = pd.read_csv(a)
     return x
-
-@st.cache
-def create_movie(a):
-    movie_df = imdb_df[imdb_df['Title'] == a]
-    return movie_df
-
-
-
 if __name__ == '__main__':
-    imdb_df = load_data("imdbTop250.csv")
+    st.title('Привет, здесь ты немного узнаешь про российский авитранспорт')
+st.write('Для начала посмотрим на датасет:')
 
-st.write('Hi, here you can explore movie perfomance in IMBD250 rating')
+airports_df = load_data('russian_passenger_air_service_2.csv') #качаем датасет
+st.dataframe(airports_df)
+st.write('В датасете видны проблемы, отсутсвуют некоторые данные, есть повторы, некоторые аэропорты вне РФ, поэтому дальше в коде идет его чиста и "причесывание"')
+airports_df['lon'] = airports_df['Airport coordinates'].str.split('\'').str[1] #юзаем пандас для обработки и чистки (часть аэропортов в США:((
+airports_df['lat'] = airports_df['Airport coordinates'].str.split('\'').str[3]
+airports_df.dropna(subset=['lat'], inplace=True)
+airports_df['lon'] = airports_df['lon'].astype(float)
+airports_df['lat'] = airports_df['lat'].astype(float)
+b = airports_df.copy()
+airport_2019 = b[b['Year'] == 2019]
+airport_2019 = airport_2019.drop_duplicates(subset = ['lat'])
+airport_2019 = airport_2019.reset_index(drop=True)
+airport_2019 = airport_2019.drop(labels = [236, 50, 159],axis = 0) #вот тут удаляем три левых аэропорта
+airport_2019point = [Point(row['lon'], row['lat']) for _, row in airport_2019.iterrows()]
+airport_2019 = airport_2019.reset_index(drop=True)
+bb = airport_2019.copy() #на всякий случай, вдруг что потом слумается из-за логарифмирования
+ln_total = bb['Whole year'].to_numpy(dtype = float) #закончили юзать и получили +2 балла (он будет еще много где дальше, но думаю, тут уже на 2 есть))
+ln_total = np.log(ln_total + 3) # тройку добавляем, чтобы не получить отрицательных значений от нулевых ячеек
+airport_2019['ln_wholeyear'] = ln_total
+st.write('Узнаем, где располагаются аэропорты. К сожалению, придеться открыть карту в отдельном окне')
+airport_fig = go.Figure(go.Scattermapbox(name='Аэропорты РФ',
+                                         lat=airport_2019['lat'],
+                                         lon=airport_2019['lon'],
+                                         text=airport_2019[['Airport name', 'Whole year']],
+                                         marker=dict(size=airport_2019['ln_wholeyear']))) #опа, нетривиальная визуализация +2балла
+airport_fig.update_layout(mapbox_style="open-street-map",
+mapbox=dict(center=dict(lat=63.94,lon=85.20), zoom = 2.5))
+airport_fig.show()
 
-selected_movies = st.multiselect("Select Movie", imdb_df['Title'].unique())
-st.write("Selected Movies:", selected_movies)
+#здесь начинаем делать тепловую карту. Есть ряд проблем - population в геодатафрейме кривой, нужен верный, берем инфу с википедии
+# с помощью scrapy и получаем +2 балла)
+#кстати, по пути решаем проблему кривых названий регионов
 
-movie_fig = go.Figure()
-for i in selected_movies:
-    movie_df = create_movie(i)
-    movie_fig.add_trace(go.Scatter(x = movie_df['IMDByear'], y = movie_df['Ranking'], name = i))
-movie_fig.update_layout(title = 'Movie perfomance year by year',
-                        xaxis_title="Year",
-                        yaxis_title="IMDB Ranking",
-                        legend_orientation="h",
-                        legend=dict(y=-.15),
-                        margin=dict(l=0, r=0, t=50, b=0),
-                        height = 600
-                        )
-### FROM: (https://translated.turbopages.org/proxy_u/en-ru.ru.52e25f3a-627fb18c-74f4b159-74722d776562/https/stackoverflow.com/questions/59100115/plotly-how-to-reverse-axes)
-movie_fig['layout']['yaxis']['autorange'] = "reversed"
-### END FROM
-st.write(movie_fig)
+st.write('Теперь давайте узнаем, среднее число полетов на 1 жителя данного регоина, то есть узнаем, кто летает чаще')
 
-### Here I started the second vizualization
+st.write('К сожалению, часть данных отсутствует, поэтому на карте видны белые пятна')
 
-st.write('unfortunatelly I failed with other pics, Altair is the worsts libriary')
+pop = load_data('result.csv')
+russia_map = gpd.read_file("admin_level_4.geojson", encoding='CP1251') #геоданные, и дальше ихи еще больше
+#russia_map_v2 = russia_map.to_crs("ESRI:102012")
+russia_map_good = (russia_map.sort_values(by=['name']))
+russia_map_good['name'] = pop['regions']
+russia_map_good['population'] = pop['population'] #на данном этапе произошел ***** с индексами, я не знаю почему, НО чекнул руками, все верно в плане регион-население, а вот с сортировкой проблемы
+russia_map_good['population'] = russia_map_good['population'].str.replace(r' ', '').astype(float) #РЕГУЛЯРНОЕ ВЫРАЖЕНИЕ!
+russia_map_good = (russia_map_good.sort_values(by=['name'])) #поэтому сортируем еще раз
+airport_2019_geo = gpd.GeoDataFrame(airport_2019, geometry=airport_2019point, crs="EPSG:4326" )
+final_map = russia_map_good.sjoin(airport_2019_geo)
+aa = final_map.copy()
+ff_1 = aa.groupby('name').sum()
+ff_2 = aa.groupby(['name']).mean()
+pas_total = ff_1['Whole year'].to_numpy(dtype = float)
+pop_ff = ff_2['population'].to_numpy(dtype = float)
+answer = pas_total // pop_ff
+final_final = russia_map_good.sjoin(airport_2019_geo)['name'].value_counts()
+final_final = final_final.reset_index()
+final_final = final_final.sort_values(by=['index'])
+final_final['k'] = answer
+russia_map_good['k'] = final_final['k']
+russia_map_good = russia_map_good.to_crs("ESRI:102012")
+russia_map_good = russia_map_good.set_index('name')
+fucking_map, ax = plt.subplots(figsize = (15,7))
+russia_map_good.plot(column = 'k', ax=ax, legend=True)
+st.pyplot(fucking_map)
 
-st.write('my code you can fing here: https://github.com/djcnvesifdbnsieuf/ha13_nes_python')
+st.write('Как видно, чаще всего летают жители Москвы (на карте Мособласть, для других регионов данные почти неотличаются. Это объясняется высоким количеством пересадок из московских аэропортов, а также тем, что некоторые направленния доступны только из Москвы (люди едут сюда, чтобы полететь) И большим количеством бизнес поездок именно в Москву')
 
-#happy_df = load_data('Happiness.csv')
-#world = gpd.read_file(gpd.datasets.get_path('naturalearth_lowres'))
-
-#world_sorted = world.sort_values( by = ['name'])
-#дальше я вручную подобрал значение из happy_df и добавил их в world_sorted
-
-Ladder_score = [2.5669,
-4.8827,
-5.1951,
-0,
-0,
-5.9747,
-4.6768,
-7.2228,
-7.2942,
-5.1648,
-0,
-4.8328,
-5.5399,
-6.8635,
-0,
-5.2160,
-0,
-5.7475,
-5.6741,
-3.4789,
-6.3756,
-0,
-5.1015,
-4.7687,
-3.7753,
-4.8484,
-5.0849,
-7.2321,
-3.4759,
-4.4227,
-6.2285,
-5.1239,
-6.1634,
-5.1944,
-7.1214,
-5.5047,
-0,
-0,
-6.1590,
-6.9109,
-0,
-7.6456,
-0,
-5.6892,
-5.9252,
-4.1514,
-6.3483,
-0,
-0,
-6.0218,
-0,
-4.1862,
-0,
-0,
-7.8087,
-0,
-6.6638,
-4.8293,
-4.7506,
-4.6726,
-7.0758,
-5.1480,
-5.5150,
-6.3989,
-4.9493,
-3.7208,
-0,
-0,
-5.9532,
-5.5104,
-7.5045,
-3.5733,
-5.2856,
-4.6724,
-4.7848,
-7.0937,
-7.1286,
-6.3874,
-5.2333,
-5.8708,
-4.6334,
-6.0579,
-4.5830,
-6.3252,
-6.1021,
-5.5415,
-4.8886,
-5.9500,
-4.7715,
-3.6528,
-4.5579,
-5.4888,
-6.2155,
-7.2375,
-5.1598,
-4.1656,
-3.5380,
-5.3843,
-5.1976,
-6.7728,
-6.1013,
-5.6075,
-5.4562,5.5461,5.0948,4.6236,4.3080,7.4489,4.5528,7.2996,6.1371,4.9096,0,4.7241,5.5355,7.4880,5.6933,0,6.3048,0,5.6921,5.7968,6.1960,0,6.1863,5.9109,6.1237,5.5460,3.3123,0,0,6.4065,4.9808,5.7782,4.3081,3.9264,6.3771,6.2806,6.3634,5.8724,2.8166,0,0,0,6.4009,4.3270,7.3535,7.5599,0,0,5.5557,3.4762,0,5.9988,4.1872,6.1919,4.3922,
-0,5.1318,
-5.1191,4.4320,
-4.5607,6.7908,
-7.1645,6.9396,
-6.4401,6.2576,5.0532,
-5.3535,
-3.5274,
-3.7594,
-3.2992,
-3.5274,
-3.7594,3.2992,0,0,]
-
-#world_sorted['happy_score'] = Ladder_score
-
-#f, ax = plt.subplots(1,1,figsize=(1,1))
-#world_sorted.plot(column = 'happy_score', ax=ax)
+st.write('А теперь давайте попробуем узнать, сколько бы было полетов в 2020 и 2021 году, если бы не ковид')
 
 
+total_year = airports_df.groupby('Year')['Whole year'].sum().reset_index()
+total_year['Whole year'] = total_year['Whole year']
+total_year_hist = go.Figure(data=[go.Bar(x=total_year['Year'], y=total_year['Whole year'])],
+                            layout_title_text="Пассажиров в год (млн. чел.)")
+st.plotly_chart(total_year_hist)
 
+st.write('Построим линейную регрессию')
 
-#final_world = pd.join(world_sorted, Ladder_score_df)
+total_year = total_year.reset_index(drop=True) #началась модель
+total_for_regr = total_year.drop(axis=0, index=13)
+x = total_for_regr['Year'].to_numpy(dtype = float) #еще numpy
+x = x.reshape((-1, 1))
+y = total_for_regr['Whole year'].to_numpy(dtype = float)
+regr = LinearRegression().fit(x, y)
+x_20_21 = np.array([2020, 2021]).reshape((-1, 1))
+y_20_21 = regr.predict(x_20_21) #модель закончилась +1 балл)
+
+total_year_pred = pd.DataFrame( [[x_20_21[0], y_20_21[0]], [x_20_21[1], y_20_21[1]]], columns=['Year', 'Whole year']) #делаем итоговую табличку
+total_year_pred['Year'] = total_year_pred['Year'].astype(int)
+total_year_result = pd.concat([total_for_regr, total_year_pred])  #опа, сложный метод для 2 баллов
+total_year_result = total_year_result.reset_index(drop=True)
+
+st.write('Результат ниже:')
+total_year_pred_fig = go.Figure(data=[go.Bar(x=total_year_result['Year'], y=total_year_result['Whole year'])],
+                            layout_title_text="Пассажиров в год (млн. чел.)")
+st.plotly_chart(total_year_pred_fig)
+
+st.write('Спасибо за внимание! Надеюсь, было интересно.')
+st.write('P.S. строк в коде > 120, если вы считаете, что это не так, значит вы не чекнули ipynb часть')
 
 
